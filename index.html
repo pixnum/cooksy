@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cooksy - Cuisine Planner</title>
+<style>
+body { font-family: Arial, sans-serif; margin:0; padding:0; display:flex; justify-content:center; background:#f4f4f4; }
+.app-frame { width:100%; max-width:750px; background:#fff; border:3px solid #444; border-radius:12px; padding:15px; margin:15px; box-shadow:0 4px 10px rgba(0,0,0,0.2); display:flex; flex-direction:column; }
+h1 { text-align:center; font-size:22px; margin-bottom:15px; }
+.controls { display:flex; justify-content:flex-end; gap:10px; margin-bottom:12px; }
+.round-btn { width:40px; height:40px; border-radius:50%; border:none; cursor:pointer; font-size:18px; display:flex; justify-content:center; align-items:center; box-shadow:0 2px 5px rgba(0,0,0,0.2); }
+.dark-mode { background:#222; color:#fff; }
+select, input, button { width:100%; padding:8px; margin:6px 0; border-radius:6px; border:1px solid #aaa; }
+#menuItems { max-height:400px; overflow-y:auto; margin-top:10px; border:1px solid #ccc; border-radius:6px; padding:5px; }
+.summary, .actions { margin-top:15px; padding:10px; border-radius:8px; background:#f9f9f9; }
+.dark-mode .app-frame { background:#333; border:3px solid #ddd; }
+.dark-mode select, .dark-mode input, .dark-mode button { background:#555; color:#fff; border:1px solid #888; }
+canvas { margin-top:15px; width:100% !important; height:250px !important; }
+.option-group { font-weight:bold; background:#eee; padding:2px 5px; }
+.menu-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; flex-wrap:wrap; }
+.menu-row input { width:70px; margin:0 5px; }
+.menu-row span { margin:0 5px; }
+.menu-row button { margin-left:5px; }
+.editable-price { background-color:#fff3c6; border:1.5px solid #f0a500; font-weight:bold; }
+.dark-mode .editable-price { background-color:#665c4a; border:1.5px solid #f0a500; color:#fff; }
+footer { text-align:center; margin-top:15px; font-size:14px; color:#555; }
+</style>
+</head>
+<body>
+<div class="app-frame">
+  <div class="controls">
+    <button id="darkToggle" class="round-btn">🌙</button>
+    <button id="currencyToggle" class="round-btn">₹/$</button>
+  </div>
+  <h1>Cooksy</h1>
+  <label for="searchInput">Search / Enter Food Item</label>
+  <input type="text" id="searchInput" placeholder="Type to search...">
+  <label for="itemSelect">Select Food Item</label>
+  <select id="itemSelect" size="15"></select>
+  <label for="guestCount">Number of Guests</label>
+  <input type="number" id="guestCount" min="1" value="100">
+  <button onclick="addItem()">Add Item</button>
+  <button onclick="resetAll()">Reset All</button>
+  <div id="menuItems"></div>
+  <div class="summary">
+    <h3>Summary</h3>
+    <p id="totalCost">Total: ₹0</p>
+    <p id="perGuest">Cost per Guest: ₹0</p>
+    <p id="categorySummary"></p>
+    <p id="top3"></p>
+  </div>
+  <canvas id="costChart"></canvas>
+  <div class="actions">
+    <button onclick="exportPDF()">Export PDF</button>
+    <button onclick="exportExcel()">Export Excel</button>
+  </div>
+  <footer>© Manik Roy 2025</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let dark=false, inrMode=true, addedItems=[];
+document.getElementById('darkToggle').onclick=()=>{dark=!dark; document.body.classList.toggle("dark-mode");};
+document.getElementById('currencyToggle').onclick=()=>{inrMode=!inrMode; renderSummary();};
+
+// ===== Menu Items (duplicates removed, A-Z sorted) =====
+const menuItemsData = [
+  // --- North Indian 50
+  {category:"North Indian", name:"Paneer Butter Masala", price:180},{category:"North Indian", name:"Dal Makhani", price:140},
+  {category:"North Indian", name:"Chole", price:120},{category:"North Indian", name:"Rajma", price:130},{category:"North Indian", name:"Aloo Gobi", price:110},
+  {category:"North Indian", name:"Malai Kofta", price:160},{category:"North Indian", name:"Butter Chicken", price:220},{category:"North Indian", name:"Mutton Rogan Josh", price:250},
+  {category:"North Indian", name:"Chicken Korma", price:220},{category:"North Indian", name:"Tandoori Chicken", price:210},{category:"North Indian", name:"Paneer Tikka", price:180},
+  {category:"North Indian", name:"Hara Bhara Kabab", price:150},{category:"North Indian", name:"Kadai Paneer", price:170},{category:"North Indian", name:"Shahi Paneer", price:190},
+  {category:"North Indian", name:"Methi Malai Paneer", price:180},{category:"North Indian", name:"Chicken Tikka Masala", price:230},{category:"North Indian", name:"Nihari", price:250},
+  {category:"North Indian", name:"Kaleji Masala", price:220},{category:"North Indian", name:"Achari Chicken", price:210},{category:"North Indian", name:"Mutton Korma", price:250},
+  {category:"North Indian", name:"Palak Paneer", price:160},{category:"North Indian", name:"Paneer Lababdar", price:180},{category:"North Indian", name:"Chicken Chettinad", price:230},
+  {category:"North Indian", name:"Bhindi Masala", price:130},{category:"North Indian", name:"Aloo Matar", price:120},{category:"North Indian", name:"Dum Aloo", price:140},
+  {category:"North Indian", name:"Paneer Pasanda", price:190},{category:"North Indian", name:"Chicken Jalfrezi", price:220},{category:"North Indian", name:"Mutton Biryani", price:250},
+  {category:"North Indian", name:"Veg Biryani", price:150},{category:"North Indian", name:"Jeera Rice", price:100},{category:"North Indian", name:"Peas Pulao", price:120},
+  {category:"North Indian", name:"Tomato Rice", price:120},{category:"North Indian", name:"Lemon Rice", price:110},{category:"North Indian", name:"Hyderabadi Biryani", price:260},
+  {category:"North Indian", name:"Kashmiri Pulao", price:280},{category:"North Indian", name:"Ghee Rice", price:130},{category:"North Indian", name:"Tandoori Roti", price:25},
+  {category:"North Indian", name:"Butter Naan", price:40},{category:"North Indian", name:"Garlic Naan", price:50},{category:"North Indian", name:"Lachha Paratha", price:45},
+  {category:"North Indian", name:"Roomali Roti", price:35},{category:"North Indian", name:"Chapati", price:25},{category:"North Indian", name:"Missi Roti", price:30},
+  {category:"North Indian", name:"Phulka", price:20},{category:"North Indian", name:"Bhakri", price:20},{category:"North Indian", name:"Kadhi", price:80},
+
+  // --- South Indian 40
+  {category:"South Indian", name:"Sambar", price:80},{category:"South Indian", name:"Rasam", price:70},{category:"South Indian", name:"Dosa", price:60},
+  {category:"South Indian", name:"Idli", price:50},{category:"South Indian", name:"Vada", price:55},{category:"South Indian", name:"Upma", price:65},
+  {category:"South Indian", name:"Pongal", price:70},{category:"South Indian", name:"Coconut Chutney", price:30},{category:"South Indian", name:"Medu Vada", price:60},
+  {category:"South Indian", name:"Masala Dosa", price:80},{category:"South Indian", name:"Tomato Chutney", price:30},{category:"South Indian", name:"Mint Chutney", price:35},
+  {category:"South Indian", name:"Curd Rice", price:60},{category:"South Indian", name:"Puliyodarai", price:65},{category:"South Indian", name:"Lemon Rasam", price:70},
+  {category:"South Indian", name:"Vegetable Upma", price:65},{category:"South Indian", name:"Neer Dosa", price:50},{category:"South Indian", name:"Set Dosa", price:60},
+  {category:"South Indian", name:"Appam", price:55},{category:"South Indian", name:"Idiyappam", price:50},{category:"South Indian", name:"Chicken Chettinad", price:230},
+  {category:"South Indian", name:"Fish Curry", price:220},{category:"South Indian", name:"Mutton Curry", price:250},{category:"South Indian", name:"Vegetable Kurma", price:150},
+  {category:"South Indian", name:"Prawn Masala", price:280},{category:"South Indian", name:"Egg Curry", price:120},{category:"South Indian", name:"Chicken 65", price:200},
+  {category:"South Indian", name:"Gobi 65", price:150},{category:"South Indian", name:"Cabbage Poriyal", price:100},{category:"South Indian", name:"Beans Poriyal", price:100},
+  {category:"South Indian", name:"Carrot Thoran", price:110},{category:"South Indian", name:"Beef Fry", price:250},{category:"South Indian", name:"Chicken Roast", price:220},
+  {category:"South Indian", name:"Mutton Fry", price:250},{category:"South Indian", name:"Veg Biryani", price:150},{category:"South Indian", name:"Chicken Biryani", price:220},
+  {category:"South Indian", name:"Mutton Biryani", price:250},{category:"South Indian", name:"Curd", price:40},{category:"South Indian", name:"Filter Coffee", price:30},
+
+  // --- East Indian 30
+  {category:"East Indian", name:"Macher Jhol", price:200},{category:"East Indian", name:"Chingri Malai Curry", price:280},{category:"East Indian", name:"Shutki Curry", price:220},
+  {category:"East Indian", name:"Pakhala Bhata", price:80},{category:"East Indian", name:"Luchi", price:50},{category:"East Indian", name:"Mishti Doi", price:90},
+  {category:"East Indian", name:"Rasgulla", price:70},{category:"East Indian", name:"Sandesh", price:70},{category:"East Indian", name:"Paturi", price:150},
+  {category:"East Indian", name:"Chhena Poda", price:120},{category:"East Indian", name:"Aloo Posto", price:120},{category:"East Indian", name:"Shukto", price:100},
+  {category:"East Indian", name:"Bengali Fish Fry", price:220},{category:"East Indian", name:"Chingri Bhapa", price:280},{category:"East Indian", name:"Cholar Dal", price:120},
+  {category:"East Indian", name:"Patishapta", price:80},{category:"East Indian", name:"Kheer", price:80},{category:"East Indian", name:"Pati Shapta", price:90},
+  {category:"East Indian", name:"Dhokar Dalna", price:150},{category:"East Indian", name:"Macher Malai Curry", price:280},{category:"East Indian", name:"Kosha Mangsho", price:250},
+  {category:"East Indian", name:"Lal Maas", price:260},{category:"East Indian", name:"Bhetki Paturi", price:280},{category:"East Indian", name:"Prawn Malai Curry", price:280},
+  {category:"East Indian", name:"Chingri Bhuna", price:280},{category:"East Indian", name:"Shutki Maach", price:250},{category:"East Indian", name:"Dhokar Dalna", price:150},
+  {category:"East Indian", name:"Chingri Malai Curry", price:280},{category:"East Indian", name:"Chingri Bhapa", price:280},{category:"East Indian", name:"Chingri Bhuna", price:280},
+
+  // --- West Indian 30
+  {category:"West Indian", name:"Pav Bhaji", price:90},{category:"West Indian", name:"Dhokla", price:60},{category:"West Indian", name:"Khandvi", price:70},
+  {category:"West Indian", name:"Thepla", price:50},{category:"West Indian", name:"Undhiyu", price:150},{category:"West Indian", name:"Fafda Jalebi", price:80},
+  {category:"West Indian", name:"Handvo", price:70},{category:"West Indian", name:"Sev Usal", price:90},{category:"West Indian", name:"Bhakri", price:25},
+  {category:"West Indian", name:"Kadhi", price:80},{category:"West Indian", name:"Batata Vada", price:50},{category:"West Indian", name:"Puran Poli", price:60},
+  {category:"West Indian", name:"Modak", price:70},{category:"West Indian", name:"Shrikhand", price:75},{category:"West Indian", name:"Misal Pav", price:120},
+  {category:"West Indian", name:"Kesar Peda", price:60},{category:"West Indian", name:"Kaju Katli", price:90},{category:"West Indian", name:"Methi Thepla", price:50},
+  {category:"West Indian", name:"Dal Dhokli", price:100},{category:"West Indian", name:"Sev Tameta", price:80},{category:"West Indian", name:"Gathiya", price:40},
+  {category:"West Indian", name:"Khichu", price:60},{category:"West Indian", name:"Dabeli", price:65},{category:"West Indian", name:"Bhajiya", price:50},
+  {category:"West Indian", name:"Batata Nu Shaak", price:90},{category:"West Indian", name:"Vaghareli Dal", price:100},{category:"West Indian", name:"Undhiya", price:150},
+  {category:"West Indian", name:"Rasawala", price:90},{category:"West Indian", name:"Farsan Mix", price:120},
+
+  // --- Street Food 30
+  {category:"Street Food", name:"Pani Puri", price:60},{category:"Street Food", name:"Vada Pav", price:40},{category:"Street Food", name:"Bhel Puri", price:60},
+  {category:"Street Food", name:"Sev Puri", price:70},{category:"Street Food", name:"Kachori", price:50},{category:"Street Food", name:"Chole Bhature", price:80},
+  {category:"Street Food", name:"Aloo Chaat", price:55},{category:"Street Food", name:"Corn Chaat", price:50},{category:"Street Food", name:"Papdi Chaat", price:60},
+  {category:"Street Food", name:"Momos", price:100},{category:"Street Food", name:"Samosa", price:45},{category:"Street Food", name:"Pav Bhaji Street", price:90},
+  {category:"Street Food", name:"Dhokla Street", price:60},{category:"Street Food", name:"Kathi Roll", price:120},{category:"Street Food", name:"Egg Roll", price:100},
+  {category:"Street Food", name:"Chicken Roll", price:150},{category:"Street Food", name:"Chili Potato", price:90},{category:"Street Food", name:"Paneer Tikka Roll", price:140},
+  {category:"Street Food", name:"French Fries", price:80},{category:"Street Food", name:"Grilled Sandwich", price:100},{category:"Street Food", name:"Burger", price:120},
+  {category:"Street Food", name:"Pizza Slice", price:150},{category:"Street Food", name:"Hot Dog", price:120},{category:"Street Food", name:"Corn Dog", price:110},
+  {category:"Street Food", name:"Cheese Balls", price:90},{category:"Street Food", name:"Spring Roll Street", price:80},{category:"Street Food", name:"Chili Paneer", price:130},
+  {category:"Street Food", name:"Veg Roll", price:100},{category:"Street Food", name:"Chicken Pakora", price:120},{category:"Street Food", name:"Dabeli", price:65},
+
+  // --- Desserts 30
+  {category:"Desserts", name:"Gulab Jamun", price:50},{category:"Desserts", name:"Rasgulla", price:60},{category:"Desserts", name:"Sandesh", price:70},
+  {category:"Desserts", name:"Kheer", price:80},{category:"Desserts", name:"Rasmalai", price:90},{category:"Desserts", name:"Jalebi", price:40},
+  {category:"Desserts", name:"Barfi", price:60},{category:"Desserts", name:"Ladoo", price:50},{category:"Desserts", name:"Peda", price:70},
+  {category:"Desserts", name:"Kulfi", price:80},{category:"Desserts", name:"Shrikhand", price:75},{category:"Desserts", name:"Chocolate Mousse", price:120},
+  {category:"Desserts", name:"Brownie", price:100},{category:"Desserts", name:"Carrot Halwa", price:90},{category:"Desserts", name:"Badam Halwa", price:110},
+  {category:"Desserts", name:"Rasgulla Roll", price:80},{category:"Desserts", name:"Milk Cake", price:85},{category:"Desserts", name:"Gajar Halwa Cup", price:60},
+  {category:"Desserts", name:"Ice Cream Scoop", price:50},{category:"Desserts", name:"Rabri", price:90},{category:"Desserts", name:"Basundi", price:80},
+  {category:"Desserts", name:"Falooda", price:100},{category:"Desserts", name:"Kaju Katli", price:120},{category:"Desserts", name:"Moong Dal Halwa", price:110},
+  {category:"Desserts", name:"Coconut Ladoo", price:60},{category:"Desserts", name:"Pineapple Halwa", price:70},{category:"Desserts", name:"Chocolate Fudge", price:120},
+  {category:"Desserts", name:"Fruit Custard", price:90},{category:"Desserts", name:"Apple Halwa", price:80},{category:"Desserts", name:"Choco Brownie Cup", price:100},
+
+  // --- Beverages 20
+  {category:"Beverages", name:"Lassi", price:40},{category:"Beverages", name:"Masala Chai", price:20},{category:"Beverages", name:"Filter Coffee", price:30},
+  {category:"Beverages", name:"Cold Coffee", price:50},{category:"Beverages", name:"Mango Shake", price:60},{category:"Beverages", name:"Badam Milk", price:70},
+  {category:"Beverages", name:"Rose Milk", price:50},{category:"Beverages", name:"Jaljeera", price:40},{category:"Beverages", name:"Nimbu Pani", price:30},
+  {category:"Beverages", name:"Orange Juice", price:60},{category:"Beverages", name:"Apple Juice", price:60},{category:"Beverages", name:"Ginger Tea", price:25},
+  {category:"Beverages", name:"Green Tea", price:30},{category:"Beverages", name:"Coconut Water", price:40},{category:"Beverages", name:"Buttermilk", price:35},
+  {category:"Beverages", name:"Elaichi Tea", price:25},{category:"Beverages", name:"Milkshake", price:55},{category:"Beverages", name:"Cold Drink", price:40},
+  {category:"Beverages", name:"Cappuccino", price:70},{category:"Beverages", name:"Espresso", price:80},
+
+  // --- Rice & Biryani 30
+  {category:"Rice & Biryani", name:"Veg Biryani", price:150},{category:"Rice & Biryani", name:"Chicken Biryani", price:220},{category:"Rice & Biryani", name:"Mutton Biryani", price:250},
+  {category:"Rice & Biryani", name:"Hyderabadi Biryani", price:260},{category:"Rice & Biryani", name:"Kolkata Biryani", price:240},{category:"Rice & Biryani", name:"Tehari", price:200},
+  {category:"Rice & Biryani", name:"Fried Rice", price:120},{category:"Rice & Biryani", name:"Veg Pulao", price:130},{category:"Rice & Biryani", name:"Jeera Rice", price:100},
+  {category:"Rice & Biryani", name:"Peas Pulao", price:120},{category:"Rice & Biryani", name:"Ghee Rice", price:130},{category:"Rice & Biryani", name:"Tomato Rice", price:120},
+  {category:"Rice & Biryani", name:"Lemon Rice", price:110},{category:"Rice & Biryani", name:"Curd Rice", price:60},{category:"Rice & Biryani", name:"Puliyodarai", price:65},
+  {category:"Rice & Biryani", name:"Vegetable Biryani", price:150},{category:"Rice & Biryani", name:"Egg Biryani", price:180},{category:"Rice & Biryani", name:"Prawn Biryani", price:280},
+  {category:"Rice & Biryani", name:"Mushroom Pulao", price:150},{category:"Rice & Biryani", name:"Paneer Pulao", price:160},{category:"Rice & Biryani", name:"Chicken Pulao", price:220},
+  {category:"Rice & Biryani", name:"Mutton Pulao", price:250},{category:"Rice & Biryani", name:"Saffron Rice", price:140},{category:"Rice & Biryani", name:"Kashmiri Pulao", price:280},
+  {category:"Rice & Biryani", name:"Vegetable Fried Rice", price:130},{category:"Rice & Biryani", name:"Egg Fried Rice", price:150},{category:"Rice & Biryani", name:"Chicken Fried Rice", price:180},
+  {category:"Rice & Biryani", name:"Special Biryani", price:300},{category:"Rice & Biryani", name:"Mutton Special Biryani", price:350},{category:"Rice & Biryani", name:"Seafood Biryani", price:400}
+];
+
+// Populate dropdown A-Z
+const itemSelect=document.getElementById("itemSelect");
+const categoryMap={};
+menuItemsData.forEach(item=>{if(!categoryMap[item.category]) categoryMap[item.category]=[]; categoryMap[item.category].push(item);});
+Object.keys(categoryMap).forEach(cat=>{
+  let optGroup=document.createElement("option"); optGroup.disabled=true; optGroup.textContent="—— "+cat+" ——"; optGroup.className="option-group";
+  itemSelect.appendChild(optGroup);
+  categoryMap[cat].sort((a,b)=>a.name.localeCompare(b.name)).forEach(it=>{
+    let opt=document.createElement("option"); opt.value=it.name; opt.textContent=it.name+" - ₹"+it.price;
+    itemSelect.appendChild(opt);
+  });
+});
+
+// ===== Functions =====
+document.getElementById("searchInput").addEventListener("input",function(){
+  let val=this.value.toLowerCase();
+  Array.from(itemSelect.options).forEach(o=>{
+    if(o.className==="option-group") return;
+    o.style.display=o.textContent.toLowerCase().includes(val)?"block":"none";
+  });
+});
+
+function addItem(){
+  let selected=itemSelect.value;
+  let guests=parseInt(document.getElementById("guestCount").value);
+  if(!selected||guests<=0) return;
+  let item=menuItemsData.find(i=>i.name===selected);
+  addedItems.push({...item, guests, quantity:1});
+  renderItems();
+  renderSummary();
+}
+
+function renderItems(){
+  let div=document.getElementById("menuItems"); div.innerHTML="";
+  addedItems.forEach((it,idx)=>{
+    let row=document.createElement("div"); row.className="menu-row";
+    let text=document.createElement("span"); text.textContent=`${it.name} (${it.guests} guests) - `;
+    let priceInput=document.createElement("input"); priceInput.type="number"; priceInput.value=it.price; priceInput.className="editable-price";
+    priceInput.oninput=()=>{it.price=parseFloat(priceInput.value)||0; renderSummary();};
+    let qtyInput=document.createElement("input"); qtyInput.type="number"; qtyInput.value=it.quantity; qtyInput.min=1;
+    qtyInput.oninput=()=>{it.quantity=parseInt(qtyInput.value)||1; renderSummary();};
+    let costText=document.createElement("span"); costText.textContent=currencyFormat(it.price*it.guests*it.quantity);
+    let btn=document.createElement("button"); btn.textContent="❌"; btn.onclick=()=>{addedItems.splice(idx,1); renderItems(); renderSummary();};
+    row.appendChild(text); row.appendChild(priceInput); row.appendChild(qtyInput); row.appendChild(costText); row.appendChild(btn);
+    div.appendChild(row);
+  });
+}
+
+function renderSummary(){
+  let total=addedItems.reduce((sum,i)=>sum+i.price*i.guests*i.quantity,0);
+  let guests=parseInt(document.getElementById("guestCount").value)||1;
+  document.getElementById("totalCost").textContent="Total: "+currencyFormat(total);
+  document.getElementById("perGuest").textContent="Cost per Guest: "+currencyFormat(total/guests);
+  let catMap={};
+  addedItems.forEach(i=>{catMap[i.category]=(catMap[i.category]||0)+i.price*i.guests*i.quantity;});
+  document.getElementById("categorySummary").textContent=Object.keys(catMap).map(c=>`${c}: ${currencyFormat(catMap[c])}`).join(" | ");
+  let top3=[...addedItems].sort((a,b)=>(b.price*b.guests*b.quantity)-(a.price*a.guests*a.quantity)).slice(0,3);
+  document.getElementById("top3").textContent="Top 3: "+(top3.map(t=>`${t.name} (${currencyFormat(t.price*t.guests*t.quantity)})`).join(", ")||"None");
+  drawChart(catMap);
+}
+
+function currencyFormat(val){return inrMode?"₹"+val.toFixed(2):"$"+(val/83).toFixed(2);}
+function resetAll(){addedItems=[]; renderItems(); renderSummary();}
+
+let chart;
+function drawChart(catMap){
+  let ctx=document.getElementById("costChart").getContext("2d");
+  if(chart) chart.destroy();
+  chart=new Chart(ctx,{
+    type:"pie",
+    data:{
+      labels:Object.keys(catMap),
+      datasets:[{data:Object.values(catMap),
+        backgroundColor:["#ff9999","#99ff99","#9999ff","#ffcc99","#cc99ff","#66cccc","#ff9966","#ffcc66","#99ccff","#ccff99","#ff6699","#66ff99","#9966ff","#ffcc66","#66ccff"]
+      }]
+    },
+    options:{responsive:true}
+  });
+}
+
+// ===== Export Functions =====
+function exportPDF(){
+  let appClone=document.querySelector(".app-frame").cloneNode(true);
+  appClone.querySelectorAll("input, button").forEach(el=>el.remove());
+  let controls=appClone.querySelector(".controls"); if(controls) controls.remove();
+  let newWin=window.open("","","width=800,height=600");
+  newWin.document.write(`
+    <html>
+    <head>
+      <title>Wedding Report</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin:20px; }
+        h1 { text-align:center; font-size:22px; }
+        .menu-row { margin-bottom:5px; }
+        .summary { margin-top:15px; padding:10px; border-radius:8px; background:#f9f9f9; }
+      </style>
+    </head>
+    <body>${appClone.innerHTML}</body>
+    </html>
+  `);
+  newWin.document.close(); newWin.print();
+}
+
+function exportExcel(){
+  let rows=[["Item","Category","Guests","Quantity","Price","Cost"]];
+  addedItems.forEach(i=>rows.push([i.name,i.category,i.guests,i.quantity,i.price,i.price*i.guests*i.quantity]));
+  let csv=rows.map(r=>r.join(",")).join("\n");
+  let blob=new Blob([csv],{type:"text/csv"}); let url=URL.createObjectURL(blob);
+  let a=document.createElement("a"); a.href=url; a.download="wedding_menu.csv"; a.click();
+}
+</script>
+</body>
+</html>
